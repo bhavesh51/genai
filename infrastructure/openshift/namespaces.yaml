@@ -1,0 +1,70 @@
+---
+# Namespace: RAG Knowledge Assistant
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rag-knowledge-assistant
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: genai-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: multi-agent-platform
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: genai-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm-finetuning
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: genai-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: document-intelligence
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: genai-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability-guardrails
+  labels:
+    opendatahub.io/dashboard: "true"
+    app.kubernetes.io/part-of: genai-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rhoai-model-serving
+  labels:
+    app.kubernetes.io/part-of: genai-platform
+    modelmesh-enabled: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: milvus
+  labels:
+    app.kubernetes.io/part-of: genai-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redis
+  labels:
+    app.kubernetes.io/part-of: genai-platform
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/part-of: genai-platform

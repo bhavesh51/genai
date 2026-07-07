@@ -1,0 +1,145 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "title": "Enterprise GenAI Platform — RHOAI 3.x",
+  "description": "LLM request metrics, guardrail violations, GPU utilization, and token cost",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Total LLM Requests",
+      "targets": [
+        {
+          "expr": "sum(genai_requests_total)",
+          "legendFormat": "Total Requests"
+        }
+      ],
+      "gridPos": {"x": 0, "y": 0, "w": 4, "h": 4}
+    },
+    {
+      "type": "stat",
+      "title": "Guardrail Violations",
+      "targets": [
+        {
+          "expr": "sum(genai_guardrail_violations_total)",
+          "legendFormat": "Violations"
+        }
+      ],
+      "gridPos": {"x": 4, "y": 0, "w": 4, "h": 4}
+    },
+    {
+      "type": "stat",
+      "title": "Avg Time-to-First-Token (s)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(genai_time_to_first_token_seconds_bucket[5m]))",
+          "legendFormat": "p95 TTFT"
+        }
+      ],
+      "gridPos": {"x": 8, "y": 0, "w": 4, "h": 4}
+    },
+    {
+      "type": "stat",
+      "title": "Estimated Cost USD (24h)",
+      "targets": [
+        {
+          "expr": "sum(increase(genai_estimated_cost_usd_total[24h]))",
+          "legendFormat": "Cost"
+        }
+      ],
+      "gridPos": {"x": 12, "y": 0, "w": 4, "h": 4}
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests per Second by Service",
+      "targets": [
+        {
+          "expr": "sum by (service) (rate(genai_requests_total[1m]))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "P99 Request Latency by Model",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (model, le) (rate(genai_request_latency_seconds_bucket[5m])))",
+          "legendFormat": "p99 {{model}}"
+        }
+      ],
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8}
+    },
+    {
+      "type": "timeseries",
+      "title": "Guardrail Violations by Type",
+      "targets": [
+        {
+          "expr": "sum by (violation_type) (rate(genai_guardrail_violations_total[5m]))",
+          "legendFormat": "{{violation_type}}"
+        }
+      ],
+      "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8}
+    },
+    {
+      "type": "gauge",
+      "title": "KV Cache Hit Rate",
+      "targets": [
+        {
+          "expr": "avg(genai_kv_cache_hit_rate)",
+          "legendFormat": "KV Cache Hit Rate"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "yellow", "value": 0.5},
+              {"color": "green", "value": 0.8}
+            ]
+          }
+        }
+      },
+      "gridPos": {"x": 12, "y": 12, "w": 6, "h": 8}
+    },
+    {
+      "type": "gauge",
+      "title": "GPU Memory Utilization",
+      "targets": [
+        {
+          "expr": "avg(genai_gpu_memory_used_bytes / (80 * 1024 * 1024 * 1024))",
+          "legendFormat": "GPU Mem %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "yellow", "value": 0.75},
+              {"color": "red", "value": 0.90}
+            ]
+          }
+        }
+      },
+      "gridPos": {"x": 18, "y": 12, "w": 6, "h": 8}
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+---
+# ResourceQuota: RAG namespace
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: rag-quota
+  namespace: rag-knowledge-assistant
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    limits.cpu: "32"
+    limits.memory: 64Gi
+    requests.nvidia.com/gpu: "0"
+    pods: "20"
+    services: "10"
+    persistentvolumeclaims: "10"
+    requests.storage: 200Gi
+---
+# ResourceQuota: Multi-agent platform
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: agent-quota
+  namespace: multi-agent-platform
+spec:
+  hard:
+    requests.cpu: "24"
+    requests.memory: 48Gi
+    limits.cpu: "48"
+    limits.memory: 96Gi
+    requests.nvidia.com/gpu: "0"
+    pods: "30"
+    services: "15"
+    persistentvolumeclaims: "10"
+    requests.storage: 200Gi
+---
+# ResourceQuota: LLM fine-tuning (GPU-heavy)
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: finetuning-quota
+  namespace: llm-finetuning
+spec:
+  hard:
+    requests.cpu: "64"
+    requests.memory: 256Gi
+    limits.cpu: "128"
+    limits.memory: 512Gi
+    requests.nvidia.com/gpu: "8"
+    limits.nvidia.com/gpu: "8"
+    pods: "20"
+    persistentvolumeclaims: "20"
+    requests.storage: 2Ti
+---
+# ResourceQuota: Document intelligence
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: docint-quota
+  namespace: document-intelligence
+spec:
+  hard:
+    requests.cpu: "16"
+    requests.memory: 32Gi
+    limits.cpu: "32"
+    limits.memory: 64Gi
+    pods: "20"
+    persistentvolumeclaims: "10"
+    requests.storage: 500Gi
+---
+# ResourceQuota: Observability & Guardrails
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: obs-guardrails-quota
+  namespace: observability-guardrails
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 16Gi
+    limits.cpu: "16"
+    limits.memory: 32Gi
+    pods: "15"

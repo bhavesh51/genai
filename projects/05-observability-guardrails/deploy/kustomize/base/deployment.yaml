@@ -1,0 +1,153 @@
+---
+# Project 5 – Observability & Guardrails Platform
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: observability-guardrails
+  namespace: observability-guardrails
+  labels:
+    app: observability-guardrails
+    version: "1.0.0"
+    app.kubernetes.io/part-of: genai-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: observability-guardrails
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: observability-guardrails
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: guardrails-proxy
+          image: quay.io/enterprise/observability-guardrails:1.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: UPSTREAM_LLM_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: guardrails-config
+                  key: UPSTREAM_LLM_URL
+            - name: UPSTREAM_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-api-secret
+                  key: api-key
+            - name: PII_DETECTION_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: guardrails-config
+                  key: PII_DETECTION_THRESHOLD
+            - name: TOXICITY_THRESHOLD
+              valueFrom:
+                configMapKeyRef:
+                  name: guardrails-config
+                  key: TOXICITY_THRESHOLD
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: observability-guardrails
+  namespace: observability-guardrails
+spec:
+  selector:
+    app: observability-guardrails
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: observability-guardrails
+  namespace: observability-guardrails
+spec:
+  to:
+    kind: Service
+    name: observability-guardrails
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: guardrails-hpa
+  namespace: observability-guardrails
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: observability-guardrails
+  minReplicas: 3
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: guardrails-config
+  namespace: observability-guardrails
+data:
+  UPSTREAM_LLM_URL: "https://granite-3-1-8b-instruct-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  PII_DETECTION_THRESHOLD: "0.85"
+  TOXICITY_THRESHOLD: "0.75"
+  PROMPT_INJECTION_THRESHOLD: "0.90"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
+  TRUSTYAI_SERVICE_URL: "http://trustyai-service.rhoai.svc.cluster.local:8080"

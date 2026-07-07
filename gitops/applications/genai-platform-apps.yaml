@@ -1,0 +1,147 @@
+---
+# ArgoCD Application: RAG Knowledge Assistant
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rag-knowledge-assistant
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: genai-platform
+  source:
+    repoURL: https://github.com/enterprise/genai-platform
+    targetRevision: main
+    path: projects/01-rag-knowledge-assistant/deploy/kustomize/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rag-knowledge-assistant
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+      - PruneLast=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: multi-agent-platform
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: genai-platform
+  source:
+    repoURL: https://github.com/enterprise/genai-platform
+    targetRevision: main
+    path: projects/02-multi-agent-platform/deploy/kustomize/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: multi-agent-platform
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: document-intelligence
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: genai-platform
+  source:
+    repoURL: https://github.com/enterprise/genai-platform
+    targetRevision: main
+    path: projects/04-document-intelligence/deploy/kustomize/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: document-intelligence
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-guardrails
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: genai-platform
+  source:
+    repoURL: https://github.com/enterprise/genai-platform
+    targetRevision: main
+    path: projects/05-observability-guardrails/deploy/kustomize/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability-guardrails
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: genai-infrastructure
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: genai-platform
+  source:
+    repoURL: https://github.com/enterprise/genai-platform
+    targetRevision: main
+    path: infrastructure/kustomize/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: genai-platform
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+---
+# ArgoCD Project
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: genai-platform
+  namespace: openshift-gitops
+spec:
+  description: Enterprise GenAI Platform on RHOAI 3.x
+  sourceRepos:
+    - https://github.com/enterprise/genai-platform
+  destinations:
+    - namespace: rag-knowledge-assistant
+      server: https://kubernetes.default.svc
+    - namespace: multi-agent-platform
+      server: https://kubernetes.default.svc
+    - namespace: llm-finetuning
+      server: https://kubernetes.default.svc
+    - namespace: document-intelligence
+      server: https://kubernetes.default.svc
+    - namespace: observability-guardrails
+      server: https://kubernetes.default.svc
+    - namespace: rhoai-model-serving
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding

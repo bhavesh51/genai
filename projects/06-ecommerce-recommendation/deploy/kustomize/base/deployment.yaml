@@ -1,0 +1,243 @@
+---
+# Project 6 – E-commerce Product Recommendation Engine
+# Base Kubernetes manifests
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ecommerce-recommendation
+  namespace: ecommerce-recommendation
+  labels:
+    app: ecommerce-recommendation
+    version: "1.0.0"
+    app.kubernetes.io/part-of: genai-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ecommerce-recommendation
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: ecommerce-recommendation
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: rec-service-account
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: download-als-model
+          image: quay.io/enterprise/s3-downloader:latest
+          env:
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: rec-config
+                  key: S3_ENDPOINT
+            - name: S3_BUCKET
+              value: "rec-engine-models"
+            - name: S3_KEY
+              value: "als/als_model.pkl"
+            - name: DEST_PATH
+              value: "/tmp/als_model.pkl"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      containers:
+        - name: rec-api
+          image: quay.io/enterprise/ecommerce-recommendation:1.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: LLM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: rec-config
+                  key: LLM_BASE_URL
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-api-secret
+                  key: api-key
+            - name: EMBEDDING_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: rec-config
+                  key: EMBEDDING_BASE_URL
+            - name: QDRANT_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: rec-config
+                  key: QDRANT_HOST
+            - name: QDRANT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: qdrant-secret
+                  key: api-key
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: rec-config
+                  key: REDIS_URL
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: database-url
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: rec-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: ecommerce-recommendation
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ecommerce-recommendation
+  namespace: ecommerce-recommendation
+  labels:
+    app: ecommerce-recommendation
+spec:
+  selector:
+    app: ecommerce-recommendation
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: ecommerce-recommendation
+  namespace: ecommerce-recommendation
+  annotations:
+    haproxy.router.openshift.io/timeout: 60s
+spec:
+  to:
+    kind: Service
+    name: ecommerce-recommendation
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rec-hpa
+  namespace: ecommerce-recommendation
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ecommerce-recommendation
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rec-config
+  namespace: ecommerce-recommendation
+data:
+  LLM_BASE_URL: "https://llama3-8b-instruct-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  EMBEDDING_BASE_URL: "https://e5-large-embedding-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  QDRANT_HOST: "qdrant.qdrant.svc.cluster.local"
+  QDRANT_PORT: "6333"
+  QDRANT_COLLECTION: "product_embeddings"
+  REDIS_URL: "redis://redis-master.redis.svc.cluster.local:6379"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.kafka.svc.cluster.local:9092"
+  KAFKA_TOPIC_EVENTS: "ecommerce.events"
+  S3_ENDPOINT: "https://s3.openshift-storage.svc.cluster.local"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
+  LOG_LEVEL: "INFO"

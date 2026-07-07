@@ -1,0 +1,155 @@
+---
+# Tekton Pipeline: GenAI Service CI/CD
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: genai-service-pipeline
+  namespace: genai-cicd
+spec:
+  params:
+    - name: git-url
+      type: string
+    - name: git-revision
+      type: string
+      default: main
+    - name: image-name
+      type: string
+    - name: image-tag
+      type: string
+    - name: context-dir
+      type: string
+    - name: dockerfile-path
+      type: string
+      default: Dockerfile
+    - name: project-name
+      type: string
+  workspaces:
+    - name: source
+    - name: docker-credentials
+  tasks:
+    - name: git-clone
+      taskRef:
+        name: git-clone
+        kind: ClusterTask
+      workspaces:
+        - name: output
+          workspace: source
+      params:
+        - name: url
+          value: $(params.git-url)
+        - name: revision
+          value: $(params.git-revision)
+
+    - name: lint
+      runAfter: [git-clone]
+      taskRef:
+        name: python-lint
+        kind: Task
+      workspaces:
+        - name: source
+          workspace: source
+      params:
+        - name: context-dir
+          value: $(params.context-dir)
+
+    - name: unit-tests
+      runAfter: [lint]
+      taskRef:
+        name: python-pytest
+        kind: Task
+      workspaces:
+        - name: source
+          workspace: source
+      params:
+        - name: context-dir
+          value: $(params.context-dir)
+
+    - name: build-and-push
+      runAfter: [unit-tests]
+      taskRef:
+        name: buildah
+        kind: ClusterTask
+      workspaces:
+        - name: source
+          workspace: source
+        - name: dockerconfig
+          workspace: docker-credentials
+      params:
+        - name: IMAGE
+          value: $(params.image-name):$(params.image-tag)
+        - name: DOCKERFILE
+          value: $(params.context-dir)/$(params.dockerfile-path)
+        - name: CONTEXT
+          value: $(params.context-dir)
+        - name: TLSVERIFY
+          value: "true"
+
+    - name: acs-image-scan
+      runAfter: [build-and-push]
+      taskRef:
+        name: stackrox-image-scan
+        kind: Task
+      params:
+        - name: image
+          value: $(params.image-name):$(params.image-tag)
+        - name: output-format
+          value: table
+
+    - name: acs-image-check
+      runAfter: [acs-image-scan]
+      taskRef:
+        name: stackrox-image-check
+        kind: Task
+      params:
+        - name: image
+          value: $(params.image-name):$(params.image-tag)
+
+    - name: update-image-tag
+      runAfter: [acs-image-check]
+      taskRef:
+        name: kustomize-set-image
+        kind: Task
+      workspaces:
+        - name: source
+          workspace: source
+      params:
+        - name: image
+          value: $(params.image-name)
+        - name: tag
+          value: $(params.image-tag)
+        - name: kustomize-path
+          value: $(params.context-dir)/deploy/kustomize/overlays/production
+---
+# PipelineRun template (triggered by webhook)
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: rag-pipeline-run-
+  namespace: genai-cicd
+spec:
+  pipelineRef:
+    name: genai-service-pipeline
+  params:
+    - name: git-url
+      value: "https://github.com/enterprise/genai-platform"
+    - name: git-revision
+      value: main
+    - name: image-name
+      value: "quay.io/enterprise/rag-knowledge-assistant"
+    - name: image-tag
+      value: "1.0.0"
+    - name: context-dir
+      value: "projects/01-rag-knowledge-assistant"
+    - name: project-name
+      value: "rag-knowledge-assistant"
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 5Gi
+    - name: docker-credentials
+      secret:
+        secretName: quay-push-secret

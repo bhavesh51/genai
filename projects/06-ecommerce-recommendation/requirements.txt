@@ -1,0 +1,34 @@
+# Project 6 – E-commerce Product Recommendation Engine
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+openai>=1.30.0
+httpx>=0.27.0
+
+# Vector store
+qdrant-client>=1.9.0
+
+# Cache / feature store
+redis[hiredis]>=5.0.0
+
+# Collaborative filtering (ALS model)
+implicit>=0.7.2
+numpy>=1.26.0
+
+# Async DB driver
+asyncpg>=0.29.0
+sqlalchemy[asyncio]>=2.0.0
+
+# Kafka event streaming
+aiokafka>=0.10.0
+
+# Observability
+prometheus-client>=0.20.0
+opentelemetry-api>=1.24.0
+opentelemetry-sdk>=1.24.0
+opentelemetry-exporter-otlp>=1.24.0
+opentelemetry-instrumentation-fastapi>=0.44b0
+
+# Utilities
+boto3>=1.34.0

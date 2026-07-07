@@ -1,0 +1,65 @@
+---
+# ModelMesh ServingRuntime for embedding + NER models
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: triton-modelmesh-runtime
+  namespace: rhoai-model-serving
+  labels:
+    opendatahub.io/dashboard: "true"
+spec:
+  multiModel: true
+  supportedModelFormats:
+    - name: onnx
+      version: "1"
+      autoSelect: true
+    - name: triton
+      version: "2"
+      autoSelect: true
+  containers:
+    - name: triton
+      image: nvcr.io/nvidia/tritonserver:24.03-py3
+      args:
+        - tritonserver
+        - "--model-repository=/mnt/models"
+        - "--strict-model-config=false"
+        - "--model-control-mode=explicit"
+      ports:
+        - containerPort: 8001
+          name: grpc
+          protocol: TCP
+        - containerPort: 8002
+          name: metrics
+          protocol: TCP
+      resources:
+        requests:
+          cpu: "2"
+          memory: 4Gi
+        limits:
+          cpu: "4"
+          memory: 8Gi
+---
+# Embedding model – MiniLM L6
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: minilm-l6-embedding
+  namespace: rhoai-model-serving
+  labels:
+    opendatahub.io/dashboard: "true"
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: onnx
+      runtime: triton-modelmesh-runtime
+      storage:
+        key: aws-connection-model-storage
+        path: models/minilm-l6-v2-onnx
+      resources:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi

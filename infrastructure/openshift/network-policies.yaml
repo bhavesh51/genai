@@ -1,0 +1,106 @@
+---
+# NetworkPolicy: RAG service – allow only API gateway and prometheus scrape
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: rag-allow-ingress
+  namespace: rag-knowledge-assistant
+spec:
+  podSelector:
+    matchLabels:
+      app: rag-knowledge-assistant
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: 3scale-amp
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: milvus
+      ports:
+        - protocol: TCP
+          port: 19530
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rhoai-model-serving
+      ports:
+        - protocol: TCP
+          port: 443
+    - to: []  # Allow DNS
+      ports:
+        - protocol: UDP
+          port: 53
+---
+# NetworkPolicy: Multi-agent platform
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-allow-ingress
+  namespace: multi-agent-platform
+spec:
+  podSelector:
+    matchLabels:
+      app: multi-agent-platform
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: redis
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: rhoai-model-serving
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 443
+---
+# NetworkPolicy: Document intelligence
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: docint-allow-ingress
+  namespace: document-intelligence
+spec:
+  podSelector:
+    matchLabels:
+      app: document-intelligence
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 9092   # Kafka
+        - protocol: TCP
+          port: 5432   # PostgreSQL

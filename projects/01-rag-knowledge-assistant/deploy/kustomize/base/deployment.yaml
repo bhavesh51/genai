@@ -1,0 +1,185 @@
+---
+# Project 1 – RAG Knowledge Assistant
+# Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-knowledge-assistant
+  namespace: rag-knowledge-assistant
+  labels:
+    app: rag-knowledge-assistant
+    version: "1.0.0"
+    app.kubernetes.io/part-of: genai-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rag-knowledge-assistant
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: rag-knowledge-assistant
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: rag-service-account
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rag-api
+          image: quay.io/enterprise/rag-knowledge-assistant:1.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: LLM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: rag-config
+                  key: LLM_BASE_URL
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-api-secret
+                  key: api-key
+            - name: MILVUS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: rag-config
+                  key: MILVUS_HOST
+            - name: MILVUS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: milvus-secret
+                  key: password
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: rag-knowledge-assistant
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-knowledge-assistant
+  namespace: rag-knowledge-assistant
+  labels:
+    app: rag-knowledge-assistant
+spec:
+  selector:
+    app: rag-knowledge-assistant
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: rag-knowledge-assistant
+  namespace: rag-knowledge-assistant
+  annotations:
+    haproxy.router.openshift.io/timeout: 120s
+spec:
+  to:
+    kind: Service
+    name: rag-knowledge-assistant
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: rag-hpa
+  namespace: rag-knowledge-assistant
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: rag-knowledge-assistant
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-config
+  namespace: rag-knowledge-assistant
+data:
+  LLM_BASE_URL: "https://granite-3-1-8b-instruct-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  EMBEDDING_BASE_URL: "https://minilm-l6-embedding-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  MILVUS_HOST: "milvus.milvus.svc.cluster.local"
+  MILVUS_PORT: "19530"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
+  LOG_LEVEL: "INFO"

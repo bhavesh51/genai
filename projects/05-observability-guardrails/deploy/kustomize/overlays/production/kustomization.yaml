@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+namespace: observability-guardrails
+images:
+  - name: quay.io/enterprise/observability-guardrails
+    newTag: "1.0.0"
+patches:
+  - target:
+      kind: Deployment
+      name: observability-guardrails
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 5
