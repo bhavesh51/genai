@@ -1,4 +1,4 @@
-# GenAI Platform — 10 Projects on Red Hat OpenShift AI 3.x
+# GenAI Projects
 
 Production-grade GenAI microservices deployed on **Red Hat OpenShift AI (RHOAI) 3.x** using **NVIDIA A100 GPUs**.
 Each project is a self-contained FastAPI service with its own LLM stack, vector database, and Kustomize deployment manifests.
