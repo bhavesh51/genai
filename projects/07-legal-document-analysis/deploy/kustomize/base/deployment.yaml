@@ -1,0 +1,264 @@
+---
+# Project 7 – Legal Document Analysis & Contract Intelligence
+# Base Kubernetes manifests (Deployment, Service, Route, HPA, ConfigMap)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: legal-document-analysis
+  namespace: legal-document-analysis
+  labels:
+    app: legal-document-analysis
+    version: "1.0.0"
+    app.kubernetes.io/part-of: genai-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: legal-document-analysis
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: legal-document-analysis
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: legal-service-account
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Init container: pre-download InLegalBERT model artefact from ODF S3
+      # Uncomment and configure once S3 credentials are provisioned:
+      # initContainers:
+      #   - name: download-inlegalbert-model
+      #     image: quay.io/enterprise/s3-downloader:latest
+      #     env:
+      #       - name: S3_ENDPOINT
+      #         valueFrom:
+      #           configMapKeyRef:
+      #             name: legal-config
+      #             key: S3_ENDPOINT
+      #       - name: S3_BUCKET
+      #         value: "legal-documents"
+      #       - name: S3_KEY
+      #         value: "models/InLegalBERT/model.bin"
+      #       - name: DEST_PATH
+      #         value: "/tmp/models/InLegalBERT/model.bin"
+      #       - name: AWS_ACCESS_KEY_ID
+      #         valueFrom:
+      #           secretKeyRef:
+      #             name: odf-s3-secret
+      #             key: AWS_ACCESS_KEY_ID
+      #       - name: AWS_SECRET_ACCESS_KEY
+      #         valueFrom:
+      #           secretKeyRef:
+      #             name: odf-s3-secret
+      #             key: AWS_SECRET_ACCESS_KEY
+      #     volumeMounts:
+      #       - mountPath: /tmp/models
+      #         name: tmp-dir
+      containers:
+        - name: legal-api
+          image: quay.io/enterprise/legal-document-analysis:1.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: LLM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: LLM_BASE_URL
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-api-secret
+                  key: api-key
+            - name: EMBEDDING_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: EMBEDDING_BASE_URL
+            - name: WEAVIATE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: WEAVIATE_HOST
+            - name: WEAVIATE_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: WEAVIATE_PORT
+            - name: WEAVIATE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: weaviate-secret
+                  key: api-key
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: REDIS_URL
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: database-url
+            - name: S3_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: S3_ENDPOINT
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: LOG_LEVEL
+              valueFrom:
+                configMapKeyRef:
+                  name: legal-config
+                  key: LOG_LEVEL
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: legal-document-analysis
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: legal-document-analysis
+  namespace: legal-document-analysis
+  labels:
+    app: legal-document-analysis
+spec:
+  selector:
+    app: legal-document-analysis
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: legal-document-analysis
+  namespace: legal-document-analysis
+  annotations:
+    haproxy.router.openshift.io/timeout: 120s
+spec:
+  to:
+    kind: Service
+    name: legal-document-analysis
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: legal-hpa
+  namespace: legal-document-analysis
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: legal-document-analysis
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: legal-config
+  namespace: legal-document-analysis
+data:
+  LLM_BASE_URL: "https://llama3-8b-instruct-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  EMBEDDING_BASE_URL: "https://inlegalbert-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  EMBEDDING_MODEL_NAME: "law-ai/InLegalBERT"
+  WEAVIATE_HOST: "weaviate.weaviate.svc.cluster.local"
+  WEAVIATE_PORT: "8080"
+  WEAVIATE_CLASS: "LegalClause"
+  REDIS_URL: "redis://redis-master.redis.svc.cluster.local:6379"
+  S3_ENDPOINT: "https://s3.openshift-storage.svc.cluster.local"
+  S3_BUCKET_DOCS: "legal-documents"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "legal-document-analysis"
+  LOG_LEVEL: "INFO"
+  MAX_UPLOAD_SIZE_MB: "50"
+  MIN_CLAUSE_LENGTH: "50"
+  RISK_THRESHOLD: "0.45"

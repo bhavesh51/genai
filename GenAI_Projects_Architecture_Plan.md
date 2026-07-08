@@ -1665,3 +1665,608 @@ vllmConfig:
 - Feature flag via Unleash: `rec_engine_v2` flag routes 20 % of traffic to new model
 - Metrics collected in ClickHouse; significance tested via statsmodels
 
+
+### Project 7: Legal Document Analysis & Contract Intelligence
+
+#### Use Case Description
+
+An AI-powered legal intelligence platform that ingests contracts, NDAs, SLAs, and regulatory filings; extracts key clauses; scores legal risk; flags anomalies against standard templates; and answers natural-language questions about any document.
+
+**Business Value:**
+- 80 % reduction in manual contract review time
+- Consistent risk scoring across thousands of contracts
+- Automatic compliance gap detection against regulatory frameworks (GDPR, CCPA, SOX)
+- Self-service legal Q&A for non-legal staff
+- Audit trail for every AI-generated opinion
+
+#### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Ingestion"
+        A[PDF / DOCX / TXT Upload]
+        B[Email Attachment Listener]
+    end
+
+    subgraph "Processing Pipeline"
+        C[Document Parser\nDocling / PDFMiner]
+        D[Clause Segmenter\nBERT NER]
+        E[Risk Scorer\nFine-tuned Legal-BERT]
+        F[Template Comparator\nSemantic Diff]
+    end
+
+    subgraph "LLM Layer"
+        G[Llama 3 8B\nvLLM on RHOAI]
+        H[Legal-BERT Embeddings\nModelMesh]
+    end
+
+    subgraph "Data Layer"
+        I[Weaviate Vector DB\nclause index]
+        J[PostgreSQL\ndocument metadata + risk scores]
+        K[ODF S3\noriginal + processed docs]
+    end
+
+    subgraph "API"
+        L[FastAPI REST]
+        M[WebSocket\nlive review session]
+    end
+
+    A --> C
+    B --> C
+    C --> D
+    D --> E
+    D --> F
+    E --> G
+    D --> H
+    H --> I
+    E --> J
+    C --> K
+    L --> G
+    L --> I
+    M --> G
+```
+
+#### Key Components
+
+**1. LLM Selection:**
+- **Primary:** Llama 3 8B fine-tuned on CUAD (Contract Understanding Atticus Dataset)
+- **Embeddings:** `law-ai/InLegalBERT` via RHOAI ModelMesh (768-dim)
+- **NER:** `dslim/bert-base-NER` for party, date, jurisdiction extraction
+
+**2. RAG Implementation:**
+- **Vector DB:** Weaviate with hybrid BM25 + dense search
+- **Clause Index:** each contract clause stored as a separate vector with metadata
+- **Template Library:** 500+ standard clause templates for anomaly detection
+- **Retrieval:** filtered by document_id for in-document Q&A; cross-document for benchmarking
+
+**3. Risk Scoring:**
+- Multi-label classifier (15 risk categories: indemnification, liability cap, IP ownership, termination, etc.)
+- Confidence score per clause with explanation
+- Aggregate contract risk score (0–100)
+
+#### Technologies
+
+**Core Stack:**
+- PyTorch 2.x + Hugging Face Transformers
+- Docling for PDF/DOCX parsing and layout extraction
+- FastAPI with WebSocket support for live review
+- Weaviate Python client
+
+**ML Frameworks:**
+- Transformers `Trainer` for fine-tuning on CUAD
+- spaCy for rule-based clause boundary detection
+- ONNX Runtime for inference optimisation
+
+**Data & Storage:**
+- PostgreSQL for document registry and risk scores
+- ODF S3 for document artefacts
+- Redis for session state during live review
+
+---
+
+#### Model Training Strategy
+
+**1. Clause Extraction NER (Offline)**
+- Base: `dslim/bert-base-NER` + custom legal entities
+- Dataset: CUAD v1 (510 contracts, 41 clause types) + synthetic augmentation
+- Training: full fine-tune, 5 epochs, lr=2e-5, batch=16
+- Metrics: F1 target ≥ 0.88 per clause type
+
+**2. Risk Classification (Offline)**
+- Base: `nlpaueb/legal-bert-base-uncased`
+- Task: multi-label classification (15 risk categories)
+- Training: 2× A100, 10 epochs, BCEWithLogitsLoss
+- Threshold: 0.45 per class
+
+**3. LLM Q&A Fine-Tuning (LoRA)**
+```python
+lora_config = LoraConfig(
+    r=16, lora_alpha=32,
+    target_modules=["q_proj", "v_proj"],
+    lora_dropout=0.05, task_type="CAUSAL_LM",
+)
+training_args = TrainingArguments(
+    per_device_train_batch_size=2,
+    gradient_accumulation_steps=8,
+    num_train_epochs=3, learning_rate=1e-4,
+    fp16=True, optim="paged_adamw_8bit",
+)
+```
+
+---
+
+#### Deployment Architecture on Red Hat AI 3.x
+
+- **Namespace:** `legal-document-analysis`
+- **API:** 2 FastAPI replicas (512 Mi RAM, 1 CPU each)
+- **KServe:** Llama 3 8B (GPU, A100 40 GB, AWQ 4-bit)
+- **ModelMesh:** InLegalBERT embeddings (CPU)
+- **StatefulSet:** Weaviate (3 replicas), Redis (1 replica)
+- **CronJob:** weekly model re-evaluation against new CUAD releases
+- **HPA:** 2–8 replicas on CPU ≥ 65 %
+
+---
+
+#### GPU Optimization
+
+- Llama 3 8B AWQ 4-bit: ~6 GB VRAM on A100 40 GB
+- Embedding model on CPU (ModelMesh) — no GPU required
+- `vllmConfig.maxModelLen: 8192` for long contract context
+- `enableChunkedPrefill: true` for documents > 4 k tokens
+
+---
+
+#### Integration Points
+
+1. **Document Management (SharePoint / Confluence):** REST API + OAuth2; auto-trigger review on upload
+2. **eSignature (DocuSign / Adobe Sign):** webhook on `envelope.completed` → extract signed terms
+3. **GRC Platform (ServiceNow / Archer):** push risk scores via REST; create tickets for high-risk clauses
+4. **Email:** IMAP listener on legal@company.com → auto-ingest attachments
+5. **Slack / Teams:** slash command `/review-contract <doc-url>` → inline risk summary
+
+---
+
+### Project 8: Educational Content Generator & Adaptive Tutor
+
+#### Use Case Description
+
+An AI-powered education platform that generates personalised course content, adaptive quizzes, and step-by-step explanations. It tracks learner mastery per topic, dynamically adjusts difficulty, and provides a conversational Socratic tutor powered by an LLM.
+
+**Business Value:**
+- 60 % faster course authoring for instructional designers
+- Personalised learning paths increase completion rates by 45 %
+- Automated quiz generation cuts assessment creation time by 70 %
+- 24/7 AI tutor reduces instructor support load by 50 %
+- Learner mastery data feeds continuous curriculum improvement
+
+#### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Learner Interface"
+        A[Web LMS]
+        B[Mobile App]
+        C[REST API Clients]
+    end
+
+    subgraph "Content Engine"
+        D[Content Generator\nLLM + Templates]
+        E[Quiz Generator\nLLM structured output]
+        F[Explanation Engine\nSocratic chain]
+        G[Difficulty Adapter\nmastery model]
+    end
+
+    subgraph "LLM Layer"
+        H[Llama 3 8B Instruct\nvLLM RHOAI]
+        I[Sentence-BERT\nModelMesh]
+    end
+
+    subgraph "Knowledge Layer"
+        J[Milvus\ncurriculum embeddings]
+        K[PostgreSQL\nlearner progress + mastery]
+        L[Redis\nsession + context cache]
+    end
+
+    A --> D
+    B --> E
+    C --> F
+    D --> H
+    E --> H
+    F --> H
+    G --> K
+    D --> I
+    I --> J
+    D --> K
+    E --> L
+```
+
+#### Key Components
+
+**1. LLM Selection:**
+- **Primary:** Llama 3 8B Instruct — content generation, quiz creation, Socratic dialogue
+- **Embeddings:** `sentence-transformers/all-mpnet-base-v2` (768-dim) for curriculum similarity
+- **Structured Output:** Llama 3 with JSON mode for quiz schemas
+
+**2. RAG Implementation:**
+- **Vector DB:** Milvus storing curriculum chunks (textbook pages, lecture transcripts)
+- **Retrieval:** top-5 relevant chunks injected into generation prompt
+- **Mastery Graph:** topic graph stored in PostgreSQL; edge weights updated by quiz scores
+
+**3. Adaptive Difficulty:**
+- Bayesian Knowledge Tracing (BKT) model per learner per topic
+- Difficulty bucket: `beginner | intermediate | advanced` routed to different prompt templates
+- Item Response Theory (IRT) parameters for quiz calibration
+
+#### Technologies
+
+**Core Stack:**
+- FastAPI + WebSocket (live tutoring sessions)
+- LangChain for RAG chains and memory
+- PyTorch for BKT / IRT models
+- Milvus for curriculum vector search
+- PostgreSQL + SQLAlchemy for mastery tracking
+
+**Content Generation:**
+- Structured output via Llama 3 function calling
+- Jinja2 templates for slide / worksheet scaffolding
+- Markdown → HTML/PDF export via Pandoc (async subprocess)
+
+---
+
+#### Model Training Strategy
+
+**1. Llama 3 LoRA Fine-Tune on Educational Dialogues**
+- Dataset: 30 k Socratic Q&A pairs (synthetic + curated)
+- Task: instruction-following for domain-specific explanations
+- LoRA: r=16, alpha=32, 3 epochs, fp16, 1× A100 40 GB
+
+**2. BKT Mastery Model**
+- Input: binary response sequences per topic
+- Parameters: p_learn, p_forget, p_guess, p_slip
+- Fitted per topic per cohort; updated online via EM
+
+**3. Quiz Difficulty Calibration**
+- IRT 3-parameter logistic model fitted on historical response data
+- Nightly offline Kubeflow pipeline; artefact stored in ODF S3
+
+---
+
+#### Deployment Architecture on Red Hat AI 3.x
+
+- **Namespace:** `educational-content-generator`
+- **API replicas:** 2 (rolling update, HPA 2–10)
+- **KServe:** Llama 3 8B GPU (A100, AWQ 4-bit)
+- **ModelMesh:** sentence-BERT CPU
+- **StatefulSet:** Milvus HA (3 replicas), Redis (1 replica)
+- **CronJob:** nightly BKT parameter update + IRT calibration
+
+---
+
+#### GPU Optimization
+
+- Llama 3 8B AWQ: ~6 GB VRAM
+- Response streaming (`stream=True`) reduces perceived latency
+- Prompt caching for repeated system instructions (vLLM prefix caching)
+- CPU ModelMesh for embeddings — no additional GPU needed
+
+---
+
+#### Integration Points
+
+1. **LMS (Moodle / Canvas / Blackboard):** LTI 1.3 integration; grade passback via REST
+2. **Content Authoring (H5P / Articulate):** export generated content as H5P JSON or SCORM
+3. **Identity (OAuth2 / SAML):** SSO with university/enterprise IdP
+4. **Analytics (xAPI / LRS):** learner activity statements → Learning Record Store
+5. **Notification:** course completion and achievement badges → email / push via SendGrid
+
+---
+
+### Project 9: Supply Chain Optimization Agent
+
+#### Use Case Description
+
+An agentic AI platform that monitors real-time supply chain signals (inventory levels, supplier lead times, demand forecasts, logistics delays), detects anomalies, and autonomously recommends or executes reorder, rerouting, and risk mitigation actions.
+
+**Business Value:**
+- 30 % reduction in stockout events
+- 25 % decrease in excess inventory carrying costs
+- 40 % faster supplier risk detection
+- Autonomous reorder execution for tier-1 items
+- Natural-language supply chain Q&A for operations teams
+
+#### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Data Sources"
+        A[ERP System\nSAP / Oracle]
+        B[IoT Sensors\nWarehouse / Fleet]
+        C[Supplier APIs]
+        D[Logistics APIs\nFedEx / DHL]
+        E[Weather / News\nexternal signals]
+    end
+
+    subgraph "Streaming Ingestion"
+        F[Kafka Topics\ninventory · orders · logistics]
+    end
+
+    subgraph "Agent Orchestrator"
+        G[Planner Agent\nLLM reasoning]
+        H[Forecaster Agent\ntime-series ML]
+        I[Risk Agent\nanomaly detection]
+        J[Executor Agent\nAPI actions]
+    end
+
+    subgraph "LLM Layer"
+        K[Llama 3 8B\nvLLM RHOAI]
+        L[Time-Series Model\nProphet / TiDE]
+    end
+
+    subgraph "Data Layer"
+        M[TimescaleDB\ntime-series metrics]
+        N[PostgreSQL\ninventory + orders]
+        O[Redis\nagent state + cache]
+        P[Qdrant\nsupplier knowledge base]
+    end
+
+    A --> F
+    B --> F
+    C --> F
+    D --> F
+    E --> F
+    F --> H
+    F --> I
+    G --> H
+    G --> I
+    G --> J
+    G --> K
+    H --> L
+    H --> M
+    I --> M
+    G --> O
+    G --> P
+```
+
+#### Key Components
+
+**1. LLM Selection:**
+- **Primary:** Llama 3 8B for planning, reasoning, and NL query answering
+- **Time-Series:** Meta TiDE (Time-series Dense Encoder) for demand forecasting
+- **Anomaly Detection:** Isolation Forest + LSTM Autoencoder for multivariate anomaly detection
+
+**2. Agentic Design (LangGraph):**
+- **Planner:** receives Kafka events, decides which sub-agents to invoke
+- **Forecaster:** runs TiDE / Prophet predictions, returns 7/14/30-day demand forecast
+- **Risk Agent:** scores supplier and logistics risks (0–1); triggers alerts at threshold > 0.7
+- **Executor:** issues reorder POs via ERP REST API or creates Jira tickets for human approval
+
+**3. RAG on Supplier Knowledge:**
+- Supplier contracts, SLAs, and qualification docs embedded in Qdrant
+- Retrieved context injected into Planner's reasoning prompt
+- Updated on supplier document change events
+
+#### Technologies
+
+**Core Stack:**
+- LangGraph for multi-agent state machine
+- FastAPI + WebSocket for live dashboard
+- aiokafka for Kafka event consumption
+- TimescaleDB for time-series storage
+- Prophet + PyTorch for forecasting models
+
+**ML Frameworks:**
+- `darts` library for TiDE / NBEATS models
+- scikit-learn Isolation Forest for anomaly detection
+- statsmodels for statistical process control
+
+---
+
+#### Model Training Strategy
+
+**1. Demand Forecasting (TiDE)**
+- Input: 24 months of daily sales, promotions, seasonality features
+- Target: 30-day ahead unit demand
+- Training: 1× A100, AdamW, MAE loss, 50 epochs
+- Retrain: monthly Kubeflow pipeline
+
+**2. Anomaly Detection (LSTM Autoencoder)**
+- Input: multivariate time series (inventory, lead time, price, weather index)
+- Threshold: reconstruction error > μ + 3σ
+- Online fine-tuning: incremental partial_fit on rolling 30-day window
+
+**3. LLM (LoRA)**
+- Dataset: 20 k supply chain Q&A + tool-calling examples
+- LoRA: r=16, alpha=32, 2 epochs, fp16
+- Tool schemas: `get_inventory`, `get_forecast`, `create_po`, `get_supplier_risk`
+
+---
+
+#### Deployment Architecture on Red Hat AI 3.x
+
+- **Namespace:** `supply-chain-agent`
+- **API replicas:** 2 + Kafka consumer pod (dedicated)
+- **KServe:** Llama 3 8B GPU (A100, AWQ 4-bit)
+- **KServe:** TiDE forecasting model (CPU, ONNX)
+- **StatefulSet:** TimescaleDB, Qdrant (3 replicas), Redis
+- **CronJob:** monthly TiDE retrain + anomaly threshold recalibration
+- **HPA:** 2–8 API replicas; Kafka consumer scales on consumer-group lag metric
+
+---
+
+#### GPU Optimization
+
+- Llama 3 8B AWQ 4-bit: ~6 GB VRAM
+- TiDE forecaster exported to ONNX INT8 → CPU inference, < 20 ms
+- Batch Kafka event processing: aggregate 100 events before LLM call to reduce token overhead
+- Redis caching of forecast outputs (TTL 1 h) prevents redundant GPU inference
+
+---
+
+#### Integration Points
+
+1. **ERP (SAP S/4HANA / Oracle SCM):** REST/OData APIs for inventory reads and PO creation
+2. **IoT Platform (AWS IoT / Azure IoT Hub):** MQTT → Kafka bridge for real-time sensor data
+3. **Logistics APIs (FedEx, DHL, project44):** shipment tracking webhooks → Kafka
+4. **Alerting (PagerDuty / OpsGenie):** risk score > 0.7 → page on-call operations manager
+5. **BI (Power BI / Tableau):** TimescaleDB continuous aggregates → direct connector
+
+---
+
+### Project 10: Creative Content Generation Platform
+
+#### Use Case Description
+
+A multi-modal creative platform for marketing and media teams that generates long-form copy, social media posts, ad scripts, image generation prompts, and audio briefs. It enforces brand guidelines, supports multi-language output, and maintains a versioned creative asset library.
+
+**Business Value:**
+- 10× faster content production for campaigns
+- Brand-consistent output across all channels
+- Multi-language localisation at near-zero marginal cost
+- A/B variant generation for performance marketing
+- Centralised creative asset management with semantic search
+
+#### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Creative Studio UI"
+        A[Web Studio]
+        B[Figma Plugin]
+        C[Slack Bot]
+    end
+
+    subgraph "Generation Engine"
+        D[Copy Generator]
+        E[Social Post Generator]
+        F[Ad Script Generator]
+        G[Image Prompt Builder]
+        H[Translation & Localisation]
+    end
+
+    subgraph "LLM Layer"
+        I[Llama 3 8B Instruct\nvLLM RHOAI – copy + scripts]
+        J[NLLB-200\nModelMesh – translation]
+        K[CLIP Embeddings\nModelMesh – image search]
+    end
+
+    subgraph "Brand Layer"
+        L[Brand Guidelines RAG\nWeaviate]
+        M[Tone-of-Voice Classifier\nfine-tuned BERT]
+        N[Compliance Checker\nrule engine + LLM]
+    end
+
+    subgraph "Asset Library"
+        O[PostgreSQL\nasset metadata + versions]
+        P[ODF S3\nasset storage]
+        Q[Weaviate\nsemantic asset search]
+    end
+
+    A --> D
+    B --> G
+    C --> E
+    D --> I
+    E --> I
+    F --> I
+    G --> K
+    H --> J
+    D --> L
+    E --> M
+    F --> N
+    L --> Q
+    D --> O
+    D --> P
+```
+
+#### Key Components
+
+**1. LLM Selection:**
+- **Primary:** Llama 3 8B Instruct — all text generation tasks
+- **Translation:** `facebook/nllb-200-distilled-600M` via RHOAI ModelMesh (200 languages)
+- **Image Embedding:** `openai/clip-vit-large-patch14` for semantic asset search
+- **Tone Classifier:** fine-tuned `distilbert-base-uncased` (formal / casual / playful / professional)
+
+**2. Brand Guidelines RAG:**
+- Brand voice docs, style guides, and approved copy samples embedded in Weaviate
+- Every generation request retrieves top-3 brand guidelines chunks
+- Compliance checker validates output against prohibited terms and tone policy
+
+**3. Asset Versioning:**
+- Every generated asset stored in ODF S3 with UUID + version suffix
+- PostgreSQL tracks lineage: prompt → model version → generated asset → approved variant
+- Semantic search via CLIP embeddings for "find similar assets" workflow
+
+#### Technologies
+
+**Core Stack:**
+- FastAPI + SSE (Server-Sent Events) for streaming generation
+- LangChain for brand-guideline RAG chains
+- Weaviate for brand + asset vector search
+- PostgreSQL + SQLAlchemy for asset registry
+- Celery + Redis for async generation jobs
+
+**Generation Tooling:**
+- Structured JSON output (Llama 3 function calling) for social post schemas
+- Jinja2 campaign templates for branded scaffolding
+- DeepL API fallback for high-stakes translation verification
+
+---
+
+#### Model Training Strategy
+
+**1. Llama 3 Brand-Voice LoRA**
+- Dataset: 50 k approved brand copy samples per vertical (retail, finance, health)
+- LoRA: r=32, alpha=64 (higher rank for style capture), 4 epochs
+- Eval: BERTScore ≥ 0.85 + human tone rating ≥ 4/5
+
+**2. Tone-of-Voice Classifier**
+- Base: `distilbert-base-uncased`
+- Labels: formal, casual, playful, professional, urgent
+- Training: 15 k labelled samples, 5 epochs, F1 target ≥ 0.91
+
+**3. LoRA Fine-Tuning Config:**
+```python
+lora_config = LoraConfig(
+    r=32, lora_alpha=64,
+    target_modules=["q_proj", "v_proj", "k_proj"],
+    lora_dropout=0.05, task_type="CAUSAL_LM",
+)
+training_args = TrainingArguments(
+    per_device_train_batch_size=4,
+    gradient_accumulation_steps=4,
+    num_train_epochs=4, learning_rate=1e-4,
+    bf16=True, optim="paged_adamw_8bit",
+)
+```
+
+---
+
+#### Deployment Architecture on Red Hat AI 3.x
+
+- **Namespace:** `creative-content-platform`
+- **API replicas:** 2 (HPA 2–12 on CPU and queue-depth metrics)
+- **KServe:** Llama 3 8B GPU (A100 40 GB, AWQ 4-bit)
+- **ModelMesh:** NLLB-200 + CLIP (CPU, multi-replica)
+- **Worker:** Celery + Redis for async long-form generation jobs
+- **StatefulSet:** Weaviate (3 replicas)
+- **CronJob:** weekly brand LoRA re-evaluation; asset embedding refresh
+
+---
+
+#### GPU Optimization
+
+- Llama 3 8B AWQ 4-bit: ~6 GB VRAM
+- NLLB-200 distilled on CPU: < 200 ms per translation (ModelMesh)
+- CLIP on CPU: < 30 ms per embedding (cached 24 h in Redis)
+- SSE streaming minimises time-to-first-token UX impact
+- Async Celery jobs for long-form (> 2 k token) generation — avoids API timeout
+
+---
+
+#### Integration Points
+
+1. **CMS (WordPress / Contentful / Sanity):** REST push of approved content; webhook on publish
+2. **DAM (Bynder / Brandfolder):** asset upload API; metadata sync for approved variants
+3. **Social Media (Meta / LinkedIn / X APIs):** direct schedule + publish of social posts
+4. **Analytics (Google Analytics 4 / Amplitude):** A/B variant IDs tracked; performance data feeds back for next-best-variant model
+5. **Slack / Teams Bot:** `/generate-post campaign=summer channel=instagram` slash command
+

@@ -1,0 +1,196 @@
+---
+# Project 9 – Supply Chain Optimization Agent – Kubernetes / OpenShift manifests
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supply-chain-agent
+  namespace: supply-chain-agent
+  labels:
+    app: supply-chain-agent
+    version: "1.0.0"
+    app.kubernetes.io/part-of: genai-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: supply-chain-agent
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: supply-chain-agent
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: agent-service-account
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent-api
+          image: quay.io/enterprise/supply-chain-agent:1.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: LLM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: supply-chain-config
+                  key: LLM_BASE_URL
+            - name: LLM_MODEL_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: supply-chain-config
+                  key: LLM_MODEL_NAME
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-api-secret
+                  key: api-key
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: url
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+            - name: QDRANT_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: supply-chain-config
+                  key: QDRANT_HOST
+            - name: QDRANT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: qdrant-secret
+                  key: api-key
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: url
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: supply-chain-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: supply-chain-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supply-chain-agent
+  namespace: supply-chain-agent
+spec:
+  selector:
+    app: supply-chain-agent
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: supply-chain-agent
+  namespace: supply-chain-agent
+  annotations:
+    haproxy.router.openshift.io/timeout: 300s
+spec:
+  to:
+    kind: Service
+    name: supply-chain-agent
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: supply-chain-agent-hpa
+  namespace: supply-chain-agent
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: supply-chain-agent
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supply-chain-config
+  namespace: supply-chain-agent
+data:
+  LLM_BASE_URL: "https://llama3-8b-instruct-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  LLM_MODEL_NAME: "meta-llama/Meta-Llama-3-8B-Instruct"
+  QDRANT_HOST: "qdrant.qdrant.svc.cluster.local"
+  QDRANT_COLLECTION: "supplier_knowledge"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka.kafka.svc.cluster.local:9092"
+  KAFKA_TOPIC_INVENTORY: "supply.inventory"
+  KAFKA_TOPIC_ORDERS: "supply.orders"
+  MAX_AGENT_ITERATIONS: "5"
+  RISK_ALERT_THRESHOLD: "0.7"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "supply-chain-agent"

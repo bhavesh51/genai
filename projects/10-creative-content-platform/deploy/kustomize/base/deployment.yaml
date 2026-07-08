@@ -1,0 +1,217 @@
+---
+# Project 10 – Creative Content Generation Platform
+# Base Kubernetes manifests
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: creative-content-platform
+  namespace: creative-content-platform
+  labels:
+    app: creative-content-platform
+    version: "1.0.0"
+    app.kubernetes.io/part-of: genai-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: creative-content-platform
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: creative-content-platform
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/api/v1/metrics"
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: content-service-account
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: content-api
+          image: quay.io/enterprise/creative-content-platform:1.0.0
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: LLM_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: content-config
+                  key: LLM_BASE_URL
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: rhoai-api-secret
+                  key: api-key
+            - name: EMBEDDING_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: content-config
+                  key: EMBEDDING_BASE_URL
+            - name: TRANSLATION_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: content-config
+                  key: TRANSLATION_BASE_URL
+            - name: WEAVIATE_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: content-config
+                  key: WEAVIATE_HOST
+            - name: WEAVIATE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: weaviate-secret
+                  key: api-key
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: content-config
+                  key: REDIS_URL
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-secret
+                  key: password
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: database-url
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: odf-s3-secret
+                  key: AWS_SECRET_ACCESS_KEY
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 768Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - mountPath: /tmp
+              name: tmp-dir
+      volumes:
+        - name: tmp-dir
+          emptyDir: {}
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: creative-content-platform
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: creative-content-platform
+  namespace: creative-content-platform
+  labels:
+    app: creative-content-platform
+spec:
+  selector:
+    app: creative-content-platform
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: creative-content-platform
+  namespace: creative-content-platform
+  annotations:
+    haproxy.router.openshift.io/timeout: 120s
+spec:
+  to:
+    kind: Service
+    name: creative-content-platform
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: content-hpa
+  namespace: creative-content-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: creative-content-platform
+  minReplicas: 2
+  maxReplicas: 12
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: content-config
+  namespace: creative-content-platform
+data:
+  LLM_BASE_URL: "https://llama3-8b-instruct-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  EMBEDDING_BASE_URL: "https://e5-large-embedding-predictor.rhoai-model-serving.svc.cluster.local/v1"
+  TRANSLATION_BASE_URL: "https://nllb-modelmesh.rhoai-model-serving.svc.cluster.local/v1"
+  WEAVIATE_HOST: "weaviate.weaviate.svc.cluster.local"
+  WEAVIATE_PORT: "8080"
+  WEAVIATE_BRAND_CLASS: "BrandGuideline"
+  WEAVIATE_ASSET_CLASS: "CreativeAsset"
+  REDIS_URL: "redis://redis-master.redis.svc.cluster.local:6379"
+  S3_ENDPOINT: "https://s3.openshift-storage.svc.cluster.local"
+  S3_BUCKET_ASSETS: "creative-assets"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4317"
+  LOG_LEVEL: "INFO"
+  COMPLIANCE_THRESHOLD: "0.8"

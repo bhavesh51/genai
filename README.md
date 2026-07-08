@@ -1,22 +1,24 @@
 # GenAI Platform — 10 Projects on Red Hat OpenShift AI 3.x
 
-Production-grade GenAI microservices deployed on **Red Hat OpenShift AI (RHOAI) 3.x** using **NVIDIA A100 GPUs**.  
+Production-grade GenAI microservices deployed on **Red Hat OpenShift AI (RHOAI) 3.x** using **NVIDIA A100 GPUs**.
 Each project is a self-contained FastAPI service with its own LLM stack, vector database, and Kustomize deployment manifests.
 
 ---
 
 ## Projects
 
-| # | Project | Key Technologies | Status |
-|---|---|---|---|
-| 1 | [RAG-based Enterprise Knowledge Assistant](projects/01-rag-knowledge-assistant/) | Granite 3.1-8B · Milvus · LangChain | ✅ Complete |
-| 2 | [Multi-Agent Platform](projects/02-multi-agent-platform/) | LangGraph · Redis · Tool-use agents | ✅ Complete |
-| 3 | [LLM Fine-Tuning Pipeline](projects/03-llm-finetuning-pipeline/) | Kubeflow Pipelines · LoRA · QLoRA · S3 | ✅ Complete |
-| 4 | [Document Intelligence](projects/04-document-intelligence/) | Docling · Kafka · async extraction | ✅ Complete |
-| 5 | [Observability & Guardrails Proxy](projects/05-observability-guardrails/) | Prometheus · Grafana · content guardrails | ✅ Complete |
-| 6 | [E-commerce Recommendation Engine](projects/06-ecommerce-recommendation/) | Llama 3 8B · E5-large · ALS · Qdrant · Redis | ✅ Complete |
-
-> Projects 7–10 (Legal Analysis, Educational Content Generator, Supply Chain Optimization, Creative Content Platform) are defined in the [Architecture Plan](GenAI_Projects_Architecture_Plan.md) and will be implemented in subsequent iterations.
+| # | Project | Industry | Key Technologies | Status |
+|---|---|---|---|---|
+| 1 | [RAG-based Enterprise Knowledge Assistant](projects/01-rag-knowledge-assistant/) | Enterprise IT | Granite 3.1-8B · Milvus · LangChain | ✅ Complete |
+| 2 | [Multi-Agent Platform](projects/02-multi-agent-platform/) | Enterprise IT | LangGraph · Redis · Tool-use agents | ✅ Complete |
+| 3 | [LLM Fine-Tuning Pipeline](projects/03-llm-finetuning-pipeline/) | MLOps | Kubeflow Pipelines · LoRA · QLoRA · S3 | ✅ Complete |
+| 4 | [Document Intelligence](projects/04-document-intelligence/) | Enterprise | Docling · Kafka · async extraction | ✅ Complete |
+| 5 | [Observability & Guardrails Proxy](projects/05-observability-guardrails/) | Platform Ops | Prometheus · Grafana · content guardrails | ✅ Complete |
+| 6 | [E-commerce Recommendation Engine](projects/06-ecommerce-recommendation/) | Retail | Llama 3 8B · E5-large · ALS · Qdrant · Redis | ✅ Complete |
+| 7 | [Legal Document Analysis](projects/07-legal-document-analysis/) | Legal / Compliance | Llama 3 8B · InLegalBERT · Weaviate · risk scoring | ✅ Complete |
+| 8 | [Educational Content Generator](projects/08-educational-content-generator/) | EdTech | Llama 3 8B · Milvus · BKT mastery · adaptive quizzes | ✅ Complete |
+| 9 | [Supply Chain Optimization Agent](projects/09-supply-chain-agent/) | Manufacturing / Logistics | LangGraph agents · TiDE forecasting · Qdrant · Kafka | ✅ Complete |
+| 10 | [Creative Content Generation Platform](projects/10-creative-content-platform/) | Marketing / Media | Llama 3 8B · NLLB-200 · CLIP · Weaviate · brand RAG | ✅ Complete |
 
 ---
 
@@ -89,7 +91,11 @@ Detailed architecture, LLM selection rationale, training strategies, GPU optimiz
 | 3 – Fine-Tuning | Any (training) | 2× 40 GB |
 | 4 – Document Intelligence | Layout model (CPU) | CPU only |
 | 5 – Guardrails Proxy | Moderation model | ~8 GB |
-| 6 – Recommendation Engine | Llama 3 8B (AWQ) | ~6 GB |
+| 6 – Recommendation Engine | Llama 3 8B AWQ 4-bit | ~6 GB |
+| 7 – Legal Document Analysis | Llama 3 8B AWQ 4-bit | ~6 GB |
+| 8 – Educational Tutor | Llama 3 8B AWQ 4-bit | ~6 GB |
+| 9 – Supply Chain Agent | Llama 3 8B AWQ 4-bit | ~6 GB |
+| 10 – Creative Content Platform | Llama 3 8B AWQ 4-bit | ~6 GB |
 
 ---
 
